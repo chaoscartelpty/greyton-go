@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Cormorant Garamond", serif;
+  --font-sans: "Lato", sans-serif;
+
+  --color-lucy-50: #f0f9fa;
+  --color-lucy-100: #dcfce7;
+  --color-lucy-800: #115e59;
+  --color-lucy-900: #0f172a;
+}
+
+/* Smooth scrolling for anchor links */
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-stone-50 text-slate-800 antialiased;
+  /* Prevent pull-to-refresh on mobile if desired, but viewport-fit=cover is more important */
+  overscroll-behavior-y: none;
+  /* Support for safe areas (notches) */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Better touch targets and feedback */
+button, a {
+  @apply cursor-pointer select-none touch-manipulation;
+}
+
+/* Prevent text selection on UI elements */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

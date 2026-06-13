@@ -1,0 +1,22 @@
+# Cloudflare Pages deployment configuration
+# Deploy: npx wrangler pages deploy dist/ --branch production
+
+name = "greyton-go"
+pages_build_output_dir = "dist"
+
+[env.production]
+# Your Cloudflare Pages deployment URL
+VITE_API_BASE_URL = "https://greyton-go.pages.dev"
+
+# Email configuration (set these as Pages Environment Variables in Cloudflare Dashboard)
+# EMAIL_USER = "your-email@zohomail.com"
+# EMAIL_PASS = "your-password"
+# ADMIN_EMAIL = "admin@example.com"
+
+# Image hosting API key (get one at https://imghosting.in)
+# IMG_HOSTING_API_KEY = "your-api-key"
+
+# Optional: Cloudflare KV namespace binding for persistent cache
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "your-kv-namespace-id"

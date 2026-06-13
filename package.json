@@ -1,0 +1,34 @@
+{
+  "name": "greyton-go-delivery",
+  "version": "1.0.0",
+  "description": "Premium Multi-Restaurant Delivery Service in Greyton",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "tsx server.js",
+    "start": "NODE_ENV=production node server.js",
+    "build": "vite build",
+    "deploy": "vite build && npx wrangler pages deploy dist/ --branch production",
+    "lint": "echo 'No lint step required'"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "firebase": "^12.11.0",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^0.475.0",
+    "motion": "^12.38.0",
+    "nodemailer": "^6.9.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "serverless-http": "^4.0.0",
+    "tailwindcss": "^4.2.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "tsx": "^4.21.0",
+    "vite": "^7.3.1"
+  }
+}

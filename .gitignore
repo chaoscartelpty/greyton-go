@@ -1,0 +1,46 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# TypeScript v1.x command line compiler
+tsconfig.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Output directory for production build
+dist/
+dist-ssr/
+
+# Local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Firebase Cache
+.firebase/
+.firebaserc
+
+# OS files
+.DS_Store
+Thumbs.db

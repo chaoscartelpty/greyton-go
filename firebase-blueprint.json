@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "Restaurant": {
+      "title": "Restaurant",
+      "description": "A restaurant profile in the delivery system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "image": { "type": "string", "format": "uri" },
+        "description": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "responsiblePerson": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "MediaAsset": {
+      "title": "Media Asset",
+      "description": "A photo or media file stored in the system",
+      "type": "object",
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "name": { "type": "string" },
+        "uploadedAt": { "type": "string", "format": "date-time" },
+        "uploadedBy": { "type": "string" }
+      },
+      "required": ["url"]
+    }
+  },
+  "firestore": {
+    "/restaurants/{restaurantId}": {
+      "schema": "Restaurant",
+      "description": "Collection of restaurant profiles"
+    },
+    "/media": {
+      "schema": "MediaAsset",
+      "description": "Collection of uploaded media metadata"
+    }
+  }
+}

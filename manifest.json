@@ -1,0 +1,21 @@
+{
+  "name": "Greyton Go Delivery",
+  "short_name": "Greyton Go",
+  "description": "Premium Village Delivery in Greyton",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#115e59",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/greyton/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/greyton/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
