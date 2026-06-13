@@ -4,16 +4,13 @@
 name = "greyton-go"
 pages_build_output_dir = "dist"
 
-[env.production]
-# Your Cloudflare Pages deployment URL
-VITE_API_BASE_URL = "https://greyton-go.pages.dev"
+[build]
+command = "npm run build"
 
-# Email configuration (set these as Pages Environment Variables in Cloudflare Dashboard)
+# Environment variables (set these in Cloudflare Pages Dashboard → Settings → Environment variables)
 # EMAIL_USER = "your-email@zohomail.com"
 # EMAIL_PASS = "your-password"
 # ADMIN_EMAIL = "admin@example.com"
-
-# Image hosting API key (get one at https://imghosting.in)
 # IMG_HOSTING_API_KEY = "your-api-key"
 
 # Optional: Cloudflare KV namespace binding for persistent cache
