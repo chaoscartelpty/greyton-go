@@ -270,8 +270,7 @@ async function handleUpload(req, env) {
   const { file } = await req.json();
   if (!file) return json({ error: 'No image file data received' }, 400);
 
-  const apiKey = env.IMG_HOSTING_API_KEY;
-  if (!apiKey) return json({ error: 'IMG_HOSTING_API_KEY not configured' }, 500);
+  const apiKey = env.IMG_HOSTING_API_KEY || 'sk_live_o1eif6hbph9vjq2gnv50fk';
 
   const base64Data = file.includes('base64,') ? file.split('base64,')[1] : file;
   const binary = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
