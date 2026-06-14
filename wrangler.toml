@@ -4,9 +4,6 @@
 name = "greyton-go"
 pages_build_output_dir = "dist"
 
-[build]
-command = "npm run build"
-
 # Environment variables (set these in Cloudflare Pages Dashboard → Settings → Environment variables)
 # EMAIL_USER = "your-email@zohomail.com"
 # EMAIL_PASS = "your-password"
