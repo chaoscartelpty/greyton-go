@@ -35,7 +35,10 @@ async function sendEmail({ from, fromName, to, subject, text, html }) {
 
   const resp = await fetch('https://api.mailchannels.net/tx/v1/send', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-MailChannels-Skip-Verification': 'true'
+    },
     body: JSON.stringify(payload)
   });
 
