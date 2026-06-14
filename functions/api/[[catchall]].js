@@ -98,15 +98,11 @@ function orderEmailHtml({ name, orderRef, restaurantNames, orderList, subtotal, 
 
 async function handleOrder(req, env) {
   const body = await req.json();
-  const { details, cart, total, restaurantEmail, driverEmail, paymentMethod, restaurantName, subtotal, deliveryFee, adminEmail } = body;
+  const { details, cart, total, restaurantEmail, driverEmail, paymentMethod, restaurantName, subtotal, deliveryFee, adminEmail, smtpUser } = body;
 
   const orderRef = `GG-${Date.now().toString().slice(-6)}`;
-  const emailUser = env.EMAIL_USER || '';
-  const adminTarget = adminEmail || env.ADMIN_EMAIL;
-
-  if (!emailUser || !adminTarget) {
-    return json({ error: 'EMAIL_USER and ADMIN_EMAIL must be configured' }, 500);
-  }
+  const emailUser = smtpUser || env.EMAIL_USER || 'chaos.cartel.pty@zohomail.com';
+  const adminTarget = adminEmail || env.ADMIN_EMAIL || 'chaos.cartel.pty@zohomail.com';
 
   const orderList = buildOrderList(cart, restaurantName);
   const sub = Number(subtotal) || (Number(total) - 35);
@@ -196,10 +192,7 @@ async function handleProformaInvoice(req, env) {
     return json({ error: 'Missing order details or customer email' }, 400);
   }
 
-  const emailUser = env.EMAIL_USER || '';
-  if (!emailUser) {
-    return json({ error: 'EMAIL_USER must be configured' }, 500);
-  }
+  const emailUser = env.EMAIL_USER || 'chaos.cartel.pty@zohomail.com';
 
   const pickedItems = order.groceryPickedItems || [];
   const pickedRows = pickedItems.filter(i => i.picked).map(i =>
@@ -357,12 +350,8 @@ export async function onRequest(context) {
 
 async function handleTestEmail(req, env) {
   const body = req.method === 'GET' ? Object.fromEntries(new URL(req.url).searchParams) : await req.json().catch(() => ({}));
-  const emailUser = env.EMAIL_USER;
-  const adminTarget = body.adminEmail || env.ADMIN_EMAIL;
-
-  if (!emailUser || !adminTarget) {
-    return json({ error: 'EMAIL_USER and ADMIN_EMAIL must be configured' }, 500);
-  }
+  const emailUser = body.smtpUser || env.EMAIL_USER || 'chaos.cartel.pty@zohomail.com';
+  const adminTarget = body.adminEmail || env.ADMIN_EMAIL || 'chaos.cartel.pty@zohomail.com';
 
   await sendEmail({
     from: emailUser,
