@@ -26,9 +26,13 @@ function json(body, status = 200) {
 }
 
 async function sendEmail({ from, fromName, to, subject, text, html }) {
+  const senderDomain = 'chaos-consulting.co.za';
+  const senderEmail = `orders@${senderDomain}`;
+
   const payload = {
     personalizations: [{ to: [{ email: to }] }],
-    from: { email: from, name: fromName || 'Greyton Go' },
+    from: { email: senderEmail, name: fromName || 'Greyton Go' },
+    reply_to: { email: from || senderEmail },
     subject,
     content: [{ type: text ? 'text/plain' : 'text/html', value: text || html }]
   };
