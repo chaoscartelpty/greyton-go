@@ -29,7 +29,7 @@ async function sendEmail({ from, fromName, to, subject, text, html }) {
   const apiKey = 're_2sBm1cGA_M8G3VjC2hGZt2kLoW6SuwnFp';
   const sender = fromName || 'Greyton Go';
   const body = {
-    from: `${sender} <onboarding@resend.dev>`,
+    from: `${sender} <orders@chaos-consulting.co.za>`,
     to: [to],
     subject,
     reply_to: from || ''
