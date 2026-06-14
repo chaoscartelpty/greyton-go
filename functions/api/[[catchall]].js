@@ -1,5 +1,5 @@
 // Cloudflare Pages Function — handles all /api/* routes
-// Uses MailChannels (free, no API key needed on Cloudflare) for email
+// Uses Resend for email delivery
 // Uses Cloudflare KV for cache (CACHE binding), with in-memory fallback
 
 const inMemoryCache = new Map();
@@ -26,29 +26,32 @@ function json(body, status = 200) {
 }
 
 async function sendEmail({ from, fromName, to, subject, text, html }) {
-  const senderDomain = 'chaos-consulting.co.za';
-  const senderEmail = `orders@${senderDomain}`;
-
-  const payload = {
-    personalizations: [{ to: [{ email: to }] }],
-    from: { email: senderEmail, name: fromName || 'Greyton Go' },
-    reply_to: { email: from || senderEmail },
+  const apiKey = 're_2sBm1cGA_M8G3VjC2hGZt2kLoW6SuwnFp';
+  const sender = fromName || 'Greyton Go';
+  const body = {
+    from: `${sender} <onboarding@resend.dev>`,
+    to: [to],
     subject,
-    content: [{ type: text ? 'text/plain' : 'text/html', value: text || html }]
+    reply_to: from || ''
   };
+  if (html) {
+    body.html = html;
+  } else {
+    body.text = text || '';
+  }
 
-  const resp = await fetch('https://api.mailchannels.net/tx/v1/send', {
+  const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-MailChannels-Skip-Verification': 'true'
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(body)
   });
 
   if (!resp.ok) {
     const errText = await resp.text();
-    throw new Error(`MailChannels error (${resp.status}): ${errText}`);
+    throw new Error(`Resend error (${resp.status}): ${errText}`);
   }
 }
 
