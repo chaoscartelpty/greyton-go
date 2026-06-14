@@ -52,7 +52,9 @@ import { MenuSection, MenuItem, SubSection, Restaurant } from "./types.ts";
 import { GroceryPickListBuilder } from "./components/GroceryPickListBuilder.tsx";
 import { GroceryPickerPanel } from "./components/GroceryPickerPanel.tsx";
 import { cache } from "./lib/cache";
-import { seedIfEmpty, saveRestaurants } from "./lib/firestoreService";
+import { seedIfEmpty, saveRestaurants, subscribeRestaurants, loadOrders, saveOrder, updateOrder, subscribeOrders, loadDrivers, saveDrivers, subscribeDrivers, loadShifts, saveShift, updateShift, loadCashups, saveCashup, computeDailyCashup, loadMonthToDate, saveMonthToDate } from "./lib/firestoreService";
+import type { DailyCashup, DriverPayslip, MonthToDate } from "./lib/firestoreService";
+
 import chaosLogo from "./assets/images/chaos_logo_1780832612157.png";
 
 // --- Types & Enums for View State ---
@@ -150,23 +152,7 @@ const fileToDataUrl = (file: File): Promise<string> => {
 };
 
 const uploadImage = async (file: File): Promise<string> => {
-  const base64Data = await fileToDataUrl(file);
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "";
-  const response = await fetch(`${apiBase}/api/upload`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ file: base64Data }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || "Failed to upload image.");
-  }
-
-  const data = await response.json();
-  return data.url;
+  return await fileToDataUrl(file);
 };
 
 const ImageUpload: React.FC<{
@@ -693,6 +679,8 @@ const CheckoutModal: React.FC<{
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "payshap">(
     "cash",
   );
+  const [tip, setTip] = useState(0);
+  const tipOptions = [0, 10, 15, 20, 30];
 
   // Reset success state when modal opens
   useEffect(() => {
@@ -720,7 +708,8 @@ const CheckoutModal: React.FC<{
           cart,
           subtotal: total,
           deliveryFee: 35,
-          total: total + 35,
+          tip,
+          total: total + 35 + tip,
           paymentMethod,
           restaurantName,
           smtpUser,
@@ -744,6 +733,7 @@ const CheckoutModal: React.FC<{
           restaurantId,
           restaurantName,
           customerName: details.name,
+          customerEmail: details.email,
           customerPhone: details.phone,
           customerAddress: details.address,
           items: cart.map((item) => ({
@@ -753,7 +743,8 @@ const CheckoutModal: React.FC<{
           })),
           subtotal,
           deliveryFee,
-          total: subtotal + deliveryFee,
+          tip,
+          total: subtotal + deliveryFee + tip,
           commission,
           paymentMethod,
           status: "pending",
@@ -999,10 +990,28 @@ const CheckoutModal: React.FC<{
                   <span>Village Delivery Fee</span>
                   <span>{formatPrice(35)}</span>
                 </div>
+                {/* Tip */}
+                <div className="pt-2">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Driver Tip</p>
+                  <div className="flex gap-2">
+                    {tipOptions.map(t => (
+                      <button key={t} type="button" onClick={() => setTip(t === tip ? 0 : t)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${tip === t ? 'bg-lucy-800 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-600 hover:border-lucy-400'}`}>
+                        {t === 0 ? 'No Tip' : `R${t}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {tip > 0 && (
+                  <div className="flex justify-between items-center text-xs text-emerald-600 font-bold">
+                    <span>Driver Tip</span>
+                    <span>{formatPrice(tip)}</span>
+                  </div>
+                )}
                 <div className="h-px bg-slate-200/50 my-1" />
                 <div className="flex justify-between items-center font-bold text-lucy-900">
                   <span>Total Amount Due</span>
-                  <span className="text-2xl">{formatPrice(total + 35)}</span>
+                  <span className="text-2xl">{formatPrice(total + 35 + tip)}</span>
                 </div>
                 <p className="text-[10px] text-lucy-600/80 pt-1 flex items-center gap-1.5">
                   <CheckCircle className="w-3 h-3 text-emerald-600" /> A
@@ -1334,7 +1343,24 @@ const RestaurantSelectionView: React.FC<{
   onSelect: (r: Restaurant) => void;
   onLoginRequest: () => void;
   onDriverLoginRequest: () => void;
-}> = ({ restaurants, onSelect, onLoginRequest, onDriverLoginRequest }) => (
+  onMyOrders: () => void;
+}> = ({ restaurants, onSelect, onLoginRequest, onDriverLoginRequest, onMyOrders }) => {
+  const [search, setSearch] = useState("");
+
+  const filtered = search.trim()
+    ? restaurants.filter(r => {
+        const q = search.toLowerCase();
+        if (r.name.toLowerCase().includes(q)) return true;
+        if (r.category?.toLowerCase().includes(q)) return true;
+        return r.menu.some(s =>
+          s.content.some(sub =>
+            sub.items.some(i => i.name.toLowerCase().includes(q))
+          )
+        );
+      })
+    : restaurants;
+
+  return (
   <div className="flex-1 flex flex-col h-full overflow-y-auto">
     <div className="container mx-auto px-4 py-12 flex flex-col min-h-full max-w-6xl">
       <div className="text-center mb-16 animate-in fade-in slide-in-from-top-10 duration-700">
@@ -1370,8 +1396,32 @@ const RestaurantSelectionView: React.FC<{
         <div className="w-24 h-1 bg-white/30 mx-auto mt-8 rounded-full"></div>
       </div>
 
+      {/* Search Bar */}
+      <div className="mb-8 animate-in fade-in duration-500">
+        <div className="relative max-w-md mx-auto">
+          <input
+            type="text"
+            placeholder="Search restaurants & menu items..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white/10 backdrop-blur border border-white/20 text-white placeholder-stone-400 focus:outline-none focus:border-[#D4AF37]/50 focus:bg-white/15 transition-all text-sm"
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {search && (
+          <p className="text-center text-stone-400 text-xs mt-2">
+            {filtered.length === 0 ? "No results found" : `Showing ${filtered.length} restaurant${filtered.length > 1 ? 's' : ''}`}
+          </p>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-4 md:gap-8 mb-16">
-        {restaurants
+        {filtered
           .filter((r) => r.isVisible !== false)
           .map((r, idx) => (
             <button
@@ -1428,6 +1478,12 @@ const RestaurantSelectionView: React.FC<{
         </div>
         <div className="flex gap-3 justify-center sm:justify-end">
           <button
+            onClick={onMyOrders}
+            className="px-5 py-2.5 rounded-full bg-blue-600/20 hover:bg-blue-600 border border-blue-500/30 hover:border-blue-500 active:scale-95 shadow-lg text-[10px] font-extrabold uppercase tracking-widest text-blue-300 hover:text-white transition-all duration-350 cursor-pointer flex items-center gap-2"
+          >
+            <FileText className="w-3.5 h-3.5" /> My Orders
+          </button>
+          <button
             onClick={() => {
               onDriverLoginRequest();
             }}
@@ -1447,7 +1503,8 @@ const RestaurantSelectionView: React.FC<{
       </div>
     </div>
   </div>
-);
+  );
+};
 
 const LoginView: React.FC<{
   onSuccess: (user: { role: "admin" | "driver"; id?: string }) => void;
@@ -2105,10 +2162,24 @@ Please email this completed form along with your photos to: delivery@chaos-consu
   );
 };
 
-const AccountingTab: React.FC<{ orders: Order[] }> = ({ orders }) => {
+const AccountingTab: React.FC<{
+  orders: Order[];
+  drivers: Driver[];
+  shifts: Shift[];
+  onSaveCashup: (cashup: DailyCashup) => void;
+  onUpdateMonthToDate: (mtd: MonthToDate) => void;
+}> = ({ orders, drivers, shifts, onSaveCashup, onUpdateMonthToDate }) => {
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<
     string | "all"
   >("all");
+  const [cashups, setCashups] = useState<DailyCashup[]>([]);
+  const [mtd, setMtd] = useState<MonthToDate | null>(null);
+  const [viewTab, setViewTab] = useState<"overview" | "payslips" | "history">("overview");
+
+  useEffect(() => {
+    loadCashups().then(setCashups);
+    loadMonthToDate().then(setMtd);
+  }, []);
 
   const filteredOrders =
     selectedRestaurantId === "all"
@@ -2126,7 +2197,6 @@ const AccountingTab: React.FC<{ orders: Order[] }> = ({ orders }) => {
   );
   const totalRevenue = totalCommission + totalDeliveryFees;
 
-  // Group by restaurant for the blocks
   const restaurantStats = useMemo(() => {
     const stats: Record<
       string,
@@ -2148,9 +2218,8 @@ const AccountingTab: React.FC<{ orders: Order[] }> = ({ orders }) => {
     return stats;
   }, [orders]);
 
-  // Daily Summary (Day End)
+  const today = new Date().toISOString().split("T")[0];
   const dailySummary = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
     const todayOrders = orders.filter((o) => o.createdAt.startsWith(today));
     return {
       count: todayOrders.length,
@@ -2160,229 +2229,410 @@ const AccountingTab: React.FC<{ orders: Order[] }> = ({ orders }) => {
     };
   }, [orders]);
 
+  const todayPayslips = useMemo(() => {
+    const todayOrders = orders.filter(o => o.createdAt?.startsWith(today) && o.status === 'delivered');
+    return drivers.map(driver => {
+      const driverOrders = todayOrders.filter(o => o.driverId === driver.id);
+      const driverShift = shifts.find(s => s.driverId === driver.id && s.clockIn?.startsWith(today));
+      const hoursWorked = driverShift?.totalHours || 0;
+      const deliveries = driverOrders.length;
+      const deliveryFeesTotal = driverOrders.reduce((s, o) => s + (o.deliveryFee || 0), 0);
+      return {
+        driverId: driver.id,
+        driverName: driver.name,
+        deliveries,
+        deliveryFeesTotal,
+        hoursWorked,
+        hourlyEarnings: hoursWorked * 25,
+        totalPayable: hoursWorked * 25,
+      };
+    }).filter(p => p.deliveries > 0 || p.hoursWorked > 0);
+  }, [orders, drivers, shifts]);
+
+  const handleRunDayEnd = async () => {
+    const cashup = computeDailyCashup(orders, drivers, shifts, today);
+    await saveCashup(cashup);
+    const saved = await loadCashups();
+    setCashups(saved);
+
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const existing = await loadMonthToDate();
+    const updatedMtd: MonthToDate = {
+      yearMonth,
+      totalRevenue: (existing?.totalRevenue || 0) + cashup.totalRevenue,
+      totalDeliveryFees: (existing?.totalDeliveryFees || 0) + cashup.totalDeliveryFees,
+      totalCommissions: (existing?.totalCommissions || 0) + cashup.totalCommissions,
+      totalDriverPayouts: (existing?.totalDriverPayouts || 0) + cashup.totalDriverPayouts,
+      netProfit: (existing?.netProfit || 0) + cashup.netProfit,
+      lastUpdated: new Date().toISOString(),
+    };
+    await saveMonthToDate(updatedMtd);
+    setMtd(updatedMtd);
+    alert(`Day end cash-up for ${today} saved!`);
+  };
+
+  const exportCashupCSV = (cashup: DailyCashup) => {
+    let csv = "\uFEFFDate,Orders,Revenue,Delivery Fees,Commissions,Driver Payouts,Cash Orders,Cash Total,PayShap Orders,PayShap Total,Net Profit\n";
+    csv += `${cashup.date},${cashup.totalOrders},${cashup.totalRevenue},${cashup.totalDeliveryFees},${cashup.totalCommissions},${cashup.totalDriverPayouts},${cashup.cashOrders},${cashup.cashTotal},${cashup.payShapOrders},${cashup.payShapTotal},${cashup.netProfit}\n\n`;
+    csv += "Driver,Deliveries,Delivery Fees,Hours Worked,Hourly Earnings,Total Payable\n";
+    cashup.driverPayslips.forEach(p => {
+      csv += `${p.driverName},${p.deliveries},${p.deliveryFeesTotal},${p.hoursWorked.toFixed(1)},${p.hourlyEarnings},${p.totalPayable}\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cashup_${cashup.date}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportMTDCSV = () => {
+    if (!mtd) return;
+    let csv = "\uFEFFYear-Month,Revenue,Delivery Fees,Commissions,Driver Payouts,Net Profit\n";
+    csv += `${mtd.yearMonth},${mtd.totalRevenue},${mtd.totalDeliveryFees},${mtd.totalCommissions},${mtd.totalDriverPayouts},${mtd.netProfit}`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `mtd_${mtd.yearMonth}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
-      {/* Day End Summary Section */}
-      <div className="bg-lucy-50 border border-lucy-100 rounded-3xl p-8 shadow-sm">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h3 className="text-2xl font-serif font-bold text-lucy-900">
-              Daily Day End Summary
-            </h3>
-            <p className="text-lucy-700 text-sm">
-              Summary for {new Date().toLocaleDateString()}
-            </p>
-          </div>
-          <div className="bg-white px-4 py-2 rounded-xl border border-lucy-200 text-lucy-800 font-bold text-sm">
-            {dailySummary.count} Orders Today
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-lucy-200">
-            <p className="text-lucy-600 text-[10px] font-bold uppercase tracking-widest mb-1">
-              Today's Sales
-            </p>
-            <p className="text-2xl font-serif font-bold text-slate-800">
-              {formatPrice(dailySummary.subtotal)}
-            </p>
-          </div>
-          <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-lucy-200">
-            <p className="text-lucy-600 text-[10px] font-bold uppercase tracking-widest mb-1">
-              Today's Commission
-            </p>
-            <p className="text-2xl font-serif font-bold text-emerald-600">
-              {formatPrice(Math.round(dailySummary.commission))}
-            </p>
-          </div>
-          <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-lucy-200">
-            <p className="text-lucy-600 text-[10px] font-bold uppercase tracking-widest mb-1">
-              Today's Delivery
-            </p>
-            <p className="text-2xl font-serif font-bold text-blue-600">
-              {formatPrice(dailySummary.delivery)}
-            </p>
-          </div>
-          <div className="bg-lucy-800 p-4 rounded-2xl text-white shadow-lg shadow-lucy-800/20">
-            <p className="text-lucy-300 text-[10px] font-bold uppercase tracking-widest mb-1">
-              Today's Revenue
-            </p>
-            <p className="text-2xl font-serif font-bold">
-              {formatPrice(
-                Math.round(dailySummary.commission + dailySummary.delivery),
-              )}
-            </p>
-          </div>
-        </div>
+      {/* Tab Navigation */}
+      <div className="flex gap-2 border-b pb-2">
+        <button onClick={() => setViewTab("overview")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${viewTab === "overview" ? "bg-lucy-800 text-white" : "text-slate-500 hover:bg-slate-100"}`}>Overview</button>
+        <button onClick={() => setViewTab("payslips")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${viewTab === "payslips" ? "bg-lucy-800 text-white" : "text-slate-500 hover:bg-slate-100"}`}>Driver Payslips</button>
+        <button onClick={() => setViewTab("history")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${viewTab === "history" ? "bg-lucy-800 text-white" : "text-slate-500 hover:bg-slate-100"}`}>Cash-up History</button>
       </div>
 
-      {/* Restaurant Selection Blocks */}
-      <div className="space-y-4">
-        <h3 className="text-xl font-serif font-bold text-slate-800 px-2">
-          Restaurant Revenue Breakdown
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          <button
-            onClick={() => setSelectedRestaurantId("all")}
-            className={`p-6 rounded-3xl border transition-all text-left group ${selectedRestaurantId === "all" ? "bg-lucy-800 border-lucy-800 text-white shadow-xl" : "bg-white border-slate-200 hover:border-lucy-400"}`}
-          >
-            <p
-              className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${selectedRestaurantId === "all" ? "text-lucy-300" : "text-slate-400"}`}
-            >
-              Overview
-            </p>
-            <h4 className="text-xl font-serif font-bold mb-4">
-              All Restaurants
-            </h4>
-            <div className="flex justify-between items-end">
-              <span
-                className={`text-sm font-bold ${selectedRestaurantId === "all" ? "text-white" : "text-lucy-800"}`}
-              >
-                {orders.length} Orders
-              </span>
-              <ArrowLeft
-                className={`w-5 h-5 rotate-180 transition-transform group-hover:translate-x-1 ${selectedRestaurantId === "all" ? "text-white" : "text-slate-300"}`}
-              />
-            </div>
-          </button>
-          {Object.entries(restaurantStats).map(([id, stats]) => (
-            <button
-              key={id}
-              onClick={() => setSelectedRestaurantId(id)}
-              className={`p-6 rounded-3xl border transition-all text-left group ${selectedRestaurantId === id ? "bg-lucy-800 border-lucy-800 text-white shadow-xl" : "bg-white border-slate-200 hover:border-lucy-400"}`}
-            >
-              <p
-                className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${selectedRestaurantId === id ? "text-lucy-300" : "text-slate-400"}`}
-              >
-                Restaurant
-              </p>
-              <h4 className="text-xl font-serif font-bold mb-4 truncate">
-                {stats.name}
-              </h4>
-              <div className="flex justify-between items-end">
-                <div className="flex flex-col">
-                  <span
-                    className={`text-xs font-bold ${selectedRestaurantId === id ? "text-lucy-200" : "text-slate-400"}`}
-                  >
-                    Sales: {formatPrice(stats.subtotal)}
-                  </span>
-                  <span
-                    className={`text-sm font-bold ${selectedRestaurantId === id ? "text-white" : "text-lucy-800"}`}
-                  >
-                    {stats.count} Orders
-                  </span>
-                </div>
-                <ArrowLeft
-                  className={`w-5 h-5 rotate-180 transition-transform group-hover:translate-x-1 ${selectedRestaurantId === id ? "text-white" : "text-slate-300"}`}
-                />
+      {viewTab === "overview" && (
+        <>
+          {/* Day End Summary Section */}
+          <div className="bg-lucy-50 border border-lucy-100 rounded-3xl p-8 shadow-sm">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-serif font-bold text-lucy-900">
+                  Daily Day End Summary
+                </h3>
+                <p className="text-lucy-700 text-sm">
+                  Summary for {new Date().toLocaleDateString()}
+                </p>
               </div>
-            </button>
-          ))}
-        </div>
-      </div>
+              <div className="flex items-center gap-3">
+                <div className="bg-white px-4 py-2 rounded-xl border border-lucy-200 text-lucy-800 font-bold text-sm">
+                  {dailySummary.count} Orders Today
+                </div>
+                <button onClick={handleRunDayEnd} className="bg-lucy-800 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-lucy-900 transition-all shadow-lg shadow-lucy-900/20 flex items-center gap-2">
+                  <Save className="w-4 h-4" /> Run Day End
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-lucy-200">
+                <p className="text-lucy-600 text-[10px] font-bold uppercase tracking-widest mb-1">
+                  Today's Sales
+                </p>
+                <p className="text-2xl font-serif font-bold text-slate-800">
+                  {formatPrice(dailySummary.subtotal)}
+                </p>
+              </div>
+              <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-lucy-200">
+                <p className="text-lucy-600 text-[10px] font-bold uppercase tracking-widest mb-1">
+                  Today's Commission
+                </p>
+                <p className="text-2xl font-serif font-bold text-emerald-600">
+                  {formatPrice(Math.round(dailySummary.commission))}
+                </p>
+              </div>
+              <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-lucy-200">
+                <p className="text-lucy-600 text-[10px] font-bold uppercase tracking-widest mb-1">
+                  Today's Delivery
+                </p>
+                <p className="text-2xl font-serif font-bold text-blue-600">
+                  {formatPrice(dailySummary.delivery)}
+                </p>
+              </div>
+              <div className="bg-lucy-800 p-4 rounded-2xl text-white shadow-lg shadow-lucy-800/20">
+                <p className="text-lucy-300 text-[10px] font-bold uppercase tracking-widest mb-1">
+                  Today's Revenue
+                </p>
+                <p className="text-2xl font-serif font-bold">
+                  {formatPrice(
+                    Math.round(dailySummary.commission + dailySummary.delivery),
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
 
-      {/* Detailed Stats for Selection */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">
-            Selected Sales
-          </p>
-          <p className="text-3xl font-serif font-bold text-slate-800">
-            {formatPrice(totalSubtotal)}
-          </p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">
-            Commission (15%)
-          </p>
-          <p className="text-3xl font-serif font-bold text-emerald-600">
-            {formatPrice(Math.round(totalCommission))}
-          </p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">
-            Delivery Fees
-          </p>
-          <p className="text-3xl font-serif font-bold text-blue-600">
-            {formatPrice(totalDeliveryFees)}
-          </p>
-        </div>
-        <div className="bg-lucy-900 p-6 rounded-3xl shadow-lg shadow-lucy-900/20 text-white">
-          <p className="text-lucy-300 text-xs font-bold uppercase tracking-widest mb-2">
-            Total Revenue
-          </p>
-          <p className="text-3xl font-serif font-bold">
-            {formatPrice(Math.round(totalRevenue))}
-          </p>
-        </div>
-      </div>
+          {/* Month-to-Date Section */}
+          {mtd && (
+            <div className="bg-blue-50 border border-blue-100 rounded-3xl p-8 shadow-sm">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-2xl font-serif font-bold text-blue-900">
+                    Month-to-Date Summary
+                  </h3>
+                  <p className="text-blue-700 text-sm">{mtd.yearMonth}</p>
+                </div>
+                <button onClick={exportMTDCSV} className="bg-blue-800 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-900 transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2">
+                  <Download className="w-4 h-4" /> Export MTD
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-blue-200">
+                  <p className="text-blue-600 text-[10px] font-bold uppercase tracking-widest mb-1">Revenue</p>
+                  <p className="text-xl font-serif font-bold text-slate-800">{formatPrice(Math.round(mtd.totalRevenue))}</p>
+                </div>
+                <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-blue-200">
+                  <p className="text-blue-600 text-[10px] font-bold uppercase tracking-widest mb-1">Delivery Fees</p>
+                  <p className="text-xl font-serif font-bold text-slate-800">{formatPrice(Math.round(mtd.totalDeliveryFees))}</p>
+                </div>
+                <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-blue-200">
+                  <p className="text-blue-600 text-[10px] font-bold uppercase tracking-widest mb-1">Commissions</p>
+                  <p className="text-xl font-serif font-bold text-emerald-600">{formatPrice(Math.round(mtd.totalCommissions))}</p>
+                </div>
+                <div className="bg-white/60 backdrop-blur p-4 rounded-2xl border border-blue-200">
+                  <p className="text-blue-600 text-[10px] font-bold uppercase tracking-widest mb-1">Driver Payouts</p>
+                  <p className="text-xl font-serif font-bold text-red-600">{formatPrice(Math.round(mtd.totalDriverPayouts))}</p>
+                </div>
+                <div className="bg-blue-800 p-4 rounded-2xl text-white shadow-lg shadow-blue-800/20">
+                  <p className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-1">Net Profit</p>
+                  <p className="text-xl font-serif font-bold">{formatPrice(Math.round(mtd.netProfit))}</p>
+                </div>
+              </div>
+            </div>
+          )}
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="text-xl font-serif font-bold text-slate-800">
-            {selectedRestaurantId === "all"
-              ? "All Order Accounting"
-              : `${restaurantStats[selectedRestaurantId]?.name} Accounting`}
-          </h3>
-          <button className="text-lucy-800 font-bold text-sm flex items-center gap-2">
-            <Download className="w-4 h-4" /> Export CSV
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-widest">
-                <th className="px-6 py-4">Order ID</th>
-                <th className="px-6 py-4">Restaurant</th>
-                <th className="px-6 py-4">Subtotal</th>
-                <th className="px-6 py-4">Commission</th>
-                <th className="px-6 py-4">Delivery</th>
-                <th className="px-6 py-4">Total</th>
-                <th className="px-6 py-4">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredOrders.map((order) => (
-                <tr
-                  key={order.id}
-                  className="hover:bg-slate-50 transition-colors"
+          {/* Restaurant Revenue Breakdown */}
+          <div className="space-y-4">
+            <h3 className="text-xl font-serif font-bold text-slate-800 px-2">
+              Restaurant Revenue Breakdown
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <button
+                onClick={() => setSelectedRestaurantId("all")}
+                className={`p-6 rounded-3xl border transition-all text-left group ${selectedRestaurantId === "all" ? "bg-lucy-800 border-lucy-800 text-white shadow-xl" : "bg-white border-slate-200 hover:border-lucy-400"}`}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">
+                  All Restaurants
+                </p>
+                <p className="text-3xl font-serif font-bold">
+                  {orders.length}
+                </p>
+                <p className="text-sm font-medium mt-2">
+                  Orders
+                </p>
+              </button>
+              {Object.entries(restaurantStats).map(([id, stats]) => (
+                <button
+                  key={id}
+                  onClick={() => setSelectedRestaurantId(id)}
+                  className={`p-6 rounded-3xl border transition-all text-left group ${selectedRestaurantId === id ? "bg-lucy-800 border-lucy-800 text-white shadow-xl" : "bg-white border-slate-200 hover:border-lucy-400"}`}
                 >
-                  <td className="px-6 py-4 font-mono text-xs font-bold text-slate-400">
-                    {order.id}
-                  </td>
-                  <td className="px-6 py-4 font-bold text-slate-700">
-                    {order.restaurantName}
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">
-                    {formatPrice(order.subtotal)}
-                  </td>
-                  <td className="px-6 py-4 text-emerald-600 font-bold">
-                    {formatPrice(Math.round(order.commission))}
-                  </td>
-                  <td className="px-6 py-4 text-blue-600 font-bold">
-                    {formatPrice(order.deliveryFee)}
-                  </td>
-                  <td className="px-6 py-4 font-bold text-slate-800">
-                    {formatPrice(order.total)}
-                  </td>
-                  <td className="px-6 py-4 text-slate-400 text-xs">
-                    {new Date(order.createdAt).toLocaleDateString()}
-                  </td>
-                </tr>
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">
+                    {stats.name}
+                  </p>
+                  <p className="text-3xl font-serif font-bold">
+                    {stats.count}
+                  </p>
+                  <p className="text-sm font-medium mt-2">
+                    Orders &middot; {formatPrice(Math.round(stats.commission))}
+                  </p>
+                </button>
               ))}
-              {filteredOrders.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-6 py-12 text-center text-slate-400 italic"
-                  >
-                    No orders recorded for this selection.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            </div>
+          </div>
+
+          {/* Detailed Table */}
+          <div className="bg-white rounded-3xl shadow-sm border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b text-left">
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      Restaurant
+                    </th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      Orders
+                    </th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      Total Sales
+                    </th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      Commission (15%)
+                    </th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      Delivery Fees
+                    </th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      Revenue
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(restaurantStats).map(([id, stats]) => (
+                    <tr key={id} className="border-b last:border-0 hover:bg-stone-50">
+                      <td className="p-4 font-bold text-slate-800">
+                        {stats.name}
+                      </td>
+                      <td className="p-4 text-slate-600">{stats.count}</td>
+                      <td className="p-4 text-slate-600">
+                        {formatPrice(Math.round(stats.subtotal))}
+                      </td>
+                      <td className="p-4 text-emerald-600 font-bold">
+                        {formatPrice(Math.round(stats.commission))}
+                      </td>
+                      <td className="p-4 text-blue-600 font-bold">
+                        {formatPrice(
+                          Math.round(
+                            orders
+                              .filter((o) => o.restaurantId === id)
+                              .reduce((acc, o) => acc + o.deliveryFee, 0),
+                          ),
+                        )}
+                      </td>
+                      <td className="p-4 text-lucy-800 font-bold">
+                        {formatPrice(
+                          Math.round(
+                            orders
+                              .filter((o) => o.restaurantId === id)
+                              .reduce(
+                                (acc, o) => acc + o.commission + o.deliveryFee,
+                                0,
+                              ),
+                          ),
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-lucy-50 font-bold">
+                    <td className="p-4 text-lucy-800">Total</td>
+                    <td className="p-4 text-slate-800">
+                      {filteredOrders.length}
+                    </td>
+                    <td className="p-4 text-slate-800">
+                      {formatPrice(Math.round(totalSubtotal))}
+                    </td>
+                    <td className="p-4 text-emerald-700">
+                      {formatPrice(Math.round(totalCommission))}
+                    </td>
+                    <td className="p-4 text-blue-700">
+                      {formatPrice(Math.round(totalDeliveryFees))}
+                    </td>
+                    <td className="p-4 text-lucy-800">
+                      {formatPrice(Math.round(totalRevenue))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {viewTab === "payslips" && (
+        <div className="bg-white rounded-3xl shadow-sm border p-8">
+          <h3 className="text-2xl font-serif font-bold text-slate-800 mb-6">Driver Payslips — {new Date().toLocaleDateString()}</h3>
+          {todayPayslips.length === 0 ? (
+            <p className="text-slate-500">No driver activity today.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b text-left">
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Driver</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Deliveries</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Delivery Fees</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Hours Worked</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Hourly Earnings (R25/hr)</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Total Payable</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {todayPayslips.map(p => (
+                    <tr key={p.driverId} className="border-b last:border-0 hover:bg-stone-50">
+                      <td className="p-4 font-bold text-slate-800">{p.driverName}</td>
+                      <td className="p-4 text-slate-600">{p.deliveries}</td>
+                      <td className="p-4 text-blue-600 font-bold">{formatPrice(Math.round(p.deliveryFeesTotal))}</td>
+                      <td className="p-4 text-slate-600">{p.hoursWorked.toFixed(1)}h</td>
+                      <td className="p-4 text-emerald-600 font-bold">{formatPrice(p.hourlyEarnings)}</td>
+                      <td className="p-4 text-lucy-800 font-bold text-lg">{formatPrice(p.totalPayable)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="mt-6 flex gap-3">
+            {todayPayslips.length > 0 && (
+              <button onClick={() => {
+                const cashup = computeDailyCashup(orders, drivers, shifts, today);
+                exportCashupCSV(cashup);
+              }} className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2">
+                <Download className="w-5 h-5" /> Export Payslips CSV
+              </button>
+            )}
+            <button onClick={handleRunDayEnd} className="bg-lucy-800 text-white px-6 py-3 rounded-2xl font-bold shadow-lg hover:bg-lucy-900 transition-all flex items-center gap-2">
+              <Save className="w-5 h-5" /> Run Day End Cash-Up
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {viewTab === "history" && (
+        <div className="bg-white rounded-3xl shadow-sm border p-8">
+          <h3 className="text-2xl font-serif font-bold text-slate-800 mb-6">Cash-up History</h3>
+          {cashups.length === 0 ? (
+            <p className="text-slate-500">No cash-ups saved yet. Run a day end to see history.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b text-left">
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Date</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Orders</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Revenue</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Delivery Fees</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Commissions</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Driver Payouts</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Net Profit</th>
+                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest text-slate-400"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashups.map(c => (
+                    <tr key={c.id} className="border-b last:border-0 hover:bg-stone-50">
+                      <td className="p-4 font-bold text-slate-800">{c.date}</td>
+                      <td className="p-4 text-slate-600">{c.totalOrders}</td>
+                      <td className="p-4 text-slate-600">{formatPrice(Math.round(c.totalRevenue))}</td>
+                      <td className="p-4 text-blue-600">{formatPrice(Math.round(c.totalDeliveryFees))}</td>
+                      <td className="p-4 text-emerald-600">{formatPrice(Math.round(c.totalCommissions))}</td>
+                      <td className="p-4 text-red-600">{formatPrice(Math.round(c.totalDriverPayouts))}</td>
+                      <td className="p-4 text-lucy-800 font-bold">{formatPrice(Math.round(c.netProfit))}</td>
+                      <td className="p-4">
+                        <button onClick={() => exportCashupCSV(c)} className="text-lucy-600 hover:text-lucy-800 transition-colors">
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -4594,6 +4844,9 @@ const BackOfficeView: React.FC<{
   onUpdateDrivers: (d: Driver[]) => void;
   onUpdateShifts: (s: Shift[]) => void;
   loggedInUser: { role: "admin" | "driver"; id?: string } | null;
+  onSaveOrder: (order: Order) => Promise<string>;
+  onUpdateOrder: (id: string, data: Partial<Order>) => Promise<void>;
+  onSaveDrivers: (d: Driver[]) => Promise<void>;
 }> = ({
   restaurants,
   onUpdateRestaurants,
@@ -4609,6 +4862,9 @@ const BackOfficeView: React.FC<{
   onUpdateDrivers,
   onUpdateShifts,
   loggedInUser,
+  onSaveOrder,
+  onUpdateOrder,
+  onSaveDrivers,
 }) => {
   const [activeTab, setActiveTab] = useState(
     loggedInUser?.role === "driver" ? "orders" : "orders",
@@ -5898,9 +6154,16 @@ const BackOfficeView: React.FC<{
               drivers={drivers}
               onUpdateOrders={onUpdateOrders}
               loggedInUser={loggedInUser}
+              onUpdateOrder={onUpdateOrder}
             />
           ) : activeTab === "accounting" ? (
-            <AccountingTab orders={orders} />
+            <AccountingTab
+              orders={orders}
+              drivers={drivers}
+              shifts={shifts}
+              onSaveCashup={(cashup) => { saveCashup(cashup).catch(console.error); }}
+              onUpdateMonthToDate={(mtd) => { saveMonthToDate(mtd).catch(console.error); }}
+            />
           ) : activeTab === "drivers" ? (
             <DriversTab
               drivers={drivers}
@@ -6172,6 +6435,99 @@ const CartDrawer: React.FC<{
   );
 };
 
+const MyOrdersView: React.FC<{
+  orders: Order[];
+  onBack: () => void;
+  onReorder: (order: Order) => void;
+}> = ({ orders, onBack, onReorder }) => {
+  const [email, setEmail] = useState("");
+  const [history, setHistory] = useState<Order[]>([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("my_orders_email");
+    if (saved) setEmail(saved);
+  }, []);
+
+  const handleLookup = () => {
+    const filtered = orders.filter(
+      o => o.customerEmail?.toLowerCase() === email.toLowerCase()
+    );
+    setHistory(filtered);
+    localStorage.setItem("my_orders_email", email);
+  };
+
+  return (
+    <div className="flex-1 flex flex-col h-full overflow-y-auto bg-slate-900">
+      <div className="container mx-auto px-4 py-12 max-w-2xl">
+        <button onClick={onBack} className="flex items-center gap-2 text-stone-400 hover:text-white transition-colors mb-8">
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
+        <h2 className="text-3xl font-serif font-bold text-white mb-8">My Orders</h2>
+
+        <div className="flex gap-3 mb-8">
+          <input
+            type="email"
+            placeholder="Enter your email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
+            className="flex-1 px-4 py-3 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-stone-400 focus:outline-none focus:border-[#D4AF37]/50 text-sm"
+          />
+          <button onClick={handleLookup} className="px-6 py-3 bg-[#D4AF37] text-slate-900 rounded-2xl font-bold hover:bg-[#D4AF37]/90 transition-all">
+            Search
+          </button>
+        </div>
+
+        {history.length > 0 && (
+          <div className="space-y-4">
+            <p className="text-stone-400 text-xs font-bold uppercase tracking-widest">{history.length} order{history.length > 1 ? 's' : ''} found</p>
+            {history.map(order => (
+              <div key={order.id} className="bg-white/5 backdrop-blur border border-white/10 rounded-2xl p-6 space-y-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-white font-bold">{order.restaurantName}</p>
+                    <p className="text-stone-400 text-xs">{new Date(order.createdAt).toLocaleDateString()} &middot; {order.id}</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${
+                    order.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-300' :
+                    order.status === 'cancelled' ? 'bg-red-500/20 text-red-300' :
+                    'bg-amber-500/20 text-amber-300'
+                  }`}>
+                    {order.status}
+                  </span>
+                </div>
+                <div className="text-sm text-stone-300 space-y-1">
+                  {order.items.slice(0, 3).map((item, i) => (
+                    <p key={i} className="flex justify-between">
+                      <span>{item.quantity}x {item.name}</span>
+                      <span>{formatPrice(item.price * item.quantity)}</span>
+                    </p>
+                  ))}
+                  {order.items.length > 3 && <p className="text-stone-500">+{order.items.length - 3} more items</p>}
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-white/10">
+                  <p className="text-white font-bold">{formatPrice(order.total)}</p>
+                  <div className="flex gap-2">
+                    {order.status !== 'cancelled' && (
+                      <button onClick={() => onReorder(order)}
+                        className="px-4 py-2 bg-lucy-800 text-white rounded-xl font-bold text-xs hover:bg-lucy-900 transition-all">
+                        Reorder
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {history.length === 0 && email && (
+          <p className="text-stone-500 text-center py-12">No orders found for this email.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [restaurants, setRestaurants] =
     useState<Restaurant[]>(initialRestaurants);
@@ -6184,9 +6540,59 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>(
     "restaurant-selection",
   );
-  // Load from Firestore on mount, seed with initial data if empty
+  // Load from Firestore on mount
   useEffect(() => {
     seedIfEmpty().then(setRestaurants);
+    loadOrders().then(setOrders);
+    loadDrivers().then(setDrivers);
+    loadShifts().then(setShifts);
+  }, []);
+
+  // Real-time subscription for restaurants (multi-device sync)
+  useEffect(() => {
+    const unsub = subscribeRestaurants(
+      (data) => { setRestaurants(data); },
+      (err) => { console.error('Restaurant sync error:', err); }
+    );
+    return () => unsub();
+  }, []);
+
+  // Wrapped order updater that persists changes to Firestore
+  const wrappedSetOrders = useCallback((next: Order[] | ((prev: Order[]) => Order[])) => {
+    setOrders((prev) => {
+      const updated = typeof next === "function" ? next(prev) : next;
+      // Find orders that changed and persist them
+      for (const o of updated) {
+        const old = prev.find(p => p.id === o.id);
+        if (!old || JSON.stringify(old) !== JSON.stringify(o)) {
+          saveOrder(o).catch(console.error);
+        }
+      }
+      // Save any new orders
+      for (const o of updated) {
+        if (!prev.find(p => p.id === o.id)) {
+          saveOrder(o).catch(console.error);
+        }
+      }
+      return updated;
+    });
+  }, []);
+
+  // Save drivers to Firestore whenever they change
+  const saveDriversToFirestore = useCallback(async (next: Driver[]) => {
+    setDrivers(next);
+    await saveDrivers(next);
+  }, []);
+
+  // Save shifts to Firestore whenever they change
+  const saveShiftsToFirestore = useCallback(async (next: Shift[]) => {
+    setShifts(next);
+    for (const shift of next) {
+      if (!shift._persisted) {
+        await saveShift(shift);
+        shift._persisted = true;
+      }
+    }
   }, []);
 
 
@@ -6330,6 +6736,9 @@ const App: React.FC = () => {
   const handleBackToLanding = () => {
     setCurrentView("restaurant-selection");
   };
+  const handleMyOrders = () => {
+    setCurrentView("my-orders");
+  };
   const handleLoginSuccess = (user: {
     role: "admin" | "driver";
     id?: string;
@@ -6389,6 +6798,7 @@ const App: React.FC = () => {
 
   const handleCheckoutSuccess = (order: Order) => {
     setOrders((prev) => [order, ...prev]);
+    saveOrder(order).catch(console.error);
     clearCart();
     setIsCheckoutOpen(false);
     setIsCartOpen(false);
@@ -6402,7 +6812,30 @@ const App: React.FC = () => {
         currentView === "restaurant-landing" ||
         currentView === "dashboard") && <BackgroundSlideshow />}
       <div className="relative z-10 flex-1 flex flex-col">
-        {currentView === "detail" && selectedCategoryId ? (
+        {currentView === "my-orders" ? (
+          <MyOrdersView
+            orders={orders}
+            onBack={handleBackToLanding}
+            onReorder={(order) => {
+              const restaurant = restaurants.find(r => r.id === order.restaurantId);
+              if (restaurant) {
+                handleRestaurantSelect(restaurant);
+                const items = order.items.map(item => {
+                  const menuItem = restaurant.menu.flatMap(s => s.content).flatMap(sub => sub.items).find(i => i.name === item.name);
+                  return {
+                    id: `${item.name}-${Date.now()}`,
+                    menuItem: menuItem || { name: item.name, price: String(item.price) },
+                    quantity: item.quantity,
+                    totalPrice: item.price * item.quantity,
+                    modifiers: [],
+                  } as CartItem;
+                });
+                setCart(items);
+                setIsCartOpen(true);
+              }
+            }}
+          />
+        ) : currentView === "detail" && selectedCategoryId ? (
           <DetailView
             section={menu.find((c) => c.id === selectedCategoryId)!}
             onBack={handleBackToDashboard}
@@ -6415,6 +6848,7 @@ const App: React.FC = () => {
               onBack={handleBackToRestaurantSelection}
               onSubmitOrder={(o) => {
                 setOrders((prev) => [o, ...prev]);
+                saveOrder(o).catch(console.error);
               }}
             />
           ) : (
@@ -6466,10 +6900,13 @@ const App: React.FC = () => {
             orders={orders}
             drivers={drivers}
             shifts={shifts}
-            onUpdateOrders={setOrders}
-            onUpdateDrivers={setDrivers}
-            onUpdateShifts={setShifts}
+            onUpdateOrders={wrappedSetOrders}
+            onUpdateDrivers={saveDriversToFirestore}
+            onUpdateShifts={saveShiftsToFirestore}
+            onSaveOrder={saveOrder}
+            onUpdateOrder={updateOrder}
             loggedInUser={loggedInUser}
+            onSaveDrivers={saveDrivers}
           />
         ) : currentView === "dashboard" ? (
           <DashboardView
@@ -6484,6 +6921,7 @@ const App: React.FC = () => {
             onSelect={handleRestaurantSelect}
             onLoginRequest={() => setCurrentView("login")}
             onDriverLoginRequest={() => setCurrentView("driver-login")}
+            onMyOrders={handleMyOrders}
           />
         )}
       </div>

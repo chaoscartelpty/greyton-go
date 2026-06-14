@@ -62,6 +62,7 @@ export interface Order {
   deliveryFee: number;
   total: number;
   commission: number; // 15% of subtotal
+  tip?: number;
   status: 'pending' | 'confirmed' | 'allocated' | 'delivered' | 'cancelled';
   driverId?: string;
   paymentMethod?: 'cash' | 'payshap';

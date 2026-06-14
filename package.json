@@ -8,7 +8,7 @@
     "dev": "tsx server.js",
     "start": "NODE_ENV=production node server.js",
     "build": "vite build",
-    "deploy": "vite build && npx wrangler pages deploy dist/ --branch production",
+    "deploy": "vite build && npx wrangler pages deploy dist/ --branch main",
     "lint": "echo 'No lint step required'"
   },
   "dependencies": {

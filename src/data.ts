@@ -7,7 +7,7 @@ export const restaurants: Restaurant[] = [
     id: 'lucy-blu',
     name: 'Lucy Blu',
     description: 'Lucy Blu Restaurant featuring breakfast, mains, pizzas, and an extensive wine list.',
-    image: 'https://imghosting.in/host/mm5d7a',
+    image: '/lucy-blu.jpg',
     category: 'Bistro & Bar',
     rating: 4.8,
     deliveryTime: '30-45 min',
